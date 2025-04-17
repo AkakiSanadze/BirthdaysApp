@@ -18,6 +18,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Theme toggle
     const themeToggleBtn = document.getElementById('theme-toggle-btn');
 
+    // Menu elements
+    const menuToggleBtn = document.getElementById('menu-toggle-btn');
+    const menuOverlay = document.getElementById('menu-overlay');
+
     // Form elements
     const birthdayForm = document.getElementById('birthday-form');
     const formTitle = document.getElementById('form-title');
@@ -44,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const exportJsonBtn = document.getElementById('export-json-btn');
     const exportCsvBtn = document.getElementById('export-csv-btn');
     const exportIcsBtn = document.getElementById('export-ics-btn');
-    const importFileLabel = document.querySelector('label[for="import-file"]');
+    const importBtn = document.getElementById('import-btn');
     const importFileInput = document.getElementById('import-file');
     const clearAllBtn = document.getElementById('clear-all-btn');
 
@@ -720,13 +724,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     // --- Import/Export Event Listeners ---
-    exportJsonBtn.addEventListener('click', () => exportData('json'));
-    exportCsvBtn.addEventListener('click', () => exportData('csv'));
-    exportIcsBtn.addEventListener('click', () => exportData('ics'));
+    exportJsonBtn.addEventListener('click', () => {
+        exportData('json');
+        closeMenu();
+    });
+    exportCsvBtn.addEventListener('click', () => {
+        exportData('csv');
+        closeMenu();
+    });
+    exportIcsBtn.addEventListener('click', () => {
+        exportData('ics');
+        closeMenu();
+    });
+    
+    importBtn.addEventListener('click', () => {
+        importFileInput.click();
+    });
+    
     importFileInput.addEventListener('change', (event) => {
         const file = event.target.files[0];
-        if (file) { // Check if a file was actually selected
-             importData(file);
+        if (file) {
+            importData(file);
+            closeMenu();
         }
     });
     
@@ -747,6 +766,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.removeChild(loadingIndicator);
             alert('ყველა მონაცემი წარმატებით წაიშალა.');
             await renderBirthdayList();
+            closeMenu();
         } catch (error) {
             console.error('Error clearing all data:', error);
             alert('მონაცემების წაშლის დროს მოხდა შეცდომა.');
@@ -881,8 +901,65 @@ document.addEventListener('DOMContentLoaded', () => {
     searchClearBtn.style.display = 'none';
 
     // --- Navigation Event Listeners ---
-    siteTitle.addEventListener('click', () => showView('list'));
-    howItWorksBtn.addEventListener('click', () => showView('how-it-works'));
-    faqBtn.addEventListener('click', () => showView('faq'));
+    siteTitle.addEventListener('click', () => {
+        showView('list');
+        closeMenu(); // Close menu when clicking site title
+    });
+
+    howItWorksBtn.addEventListener('click', () => {
+        showView('how-it-works');
+        closeMenu();
+    });
+
+    faqBtn.addEventListener('click', () => {
+        showView('faq');
+        closeMenu();
+    });
+
+    // Menu Toggle Functions
+    function toggleMenu() {
+        const isOpen = menuToggleBtn.classList.contains('active');
+        
+        if (isOpen) {
+            closeMenu();
+        } else {
+            openMenu();
+        }
+    }
+    
+    function openMenu() {
+        menuToggleBtn.classList.add('active');
+        menuOverlay.classList.add('active');
+        document.body.classList.add('menu-open');
+    }
+    
+    function closeMenu() {
+        menuToggleBtn.classList.remove('active');
+        menuOverlay.classList.remove('active');
+        document.body.classList.remove('menu-open');
+    }
+    
+    // Event Listeners
+    menuToggleBtn.addEventListener('click', toggleMenu);
+    
+    // Close menu when clicking outside the menu content
+    menuOverlay.addEventListener('click', (e) => {
+        if (e.target === menuOverlay) {
+            closeMenu();
+        }
+    });
+    
+    // Close menu when clicking a menu option
+    const menuButtons = menuOverlay.querySelectorAll('button, .import-button');
+    menuButtons.forEach(button => {
+        button.addEventListener('click', closeMenu);
+    });
+    
+    // Close menu with Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && menuOverlay.classList.contains('active')) {
+            closeMenu();
+        }
+    });
 
 }); // End DOMContentLoaded

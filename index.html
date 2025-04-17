@@ -3,34 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>დაბადების დღეები</title>
+    <title>BdaysApp - დაბადების დღეები</title>
     <link rel="stylesheet" href="style.css">
+    <!-- Favicon and Apple touch icon support -->
+    <link rel="icon" href="fevicon.png" type="image/png">
+    <link rel="apple-touch-icon" href="fevicon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BdaysApp">
     <!-- მომავალში დავამატებთ ფონტებს და ხატულებს -->
 </head>
 <body>
     <header>
         <div class="left-header">
-            <h1 id="site-title">🎂 დღეობა</h1>
-            <nav class="main-nav">
-                <button id="how-it-works-btn" class="nav-btn">როგორ მუშაობს</button>
-                <button id="faq-btn" class="nav-btn">ხშირად დასმული კითხვები</button>
-            </nav>
+            <button id="menu-toggle-btn" class="menu-toggle" aria-label="მენიუს გახსნა">
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+            </button>
+            <h1 id="site-title">🎂 BdaysApp</h1>
         </div>
         <div class="right-header">
             <button id="theme-toggle-btn" class="theme-toggle" aria-label="თემის შეცვლა">
                 <span class="toggle-icon dark">🌙</span>
                 <span class="toggle-icon light">☀️</span>
             </button>
-            <div class="actions">
-                <button id="export-json-btn">ექსპორტი (JSON)</button>
-                <button id="export-csv-btn">ექსპორტი (CSV)</button>
-                <button id="export-ics-btn">ექსპორტი კალენდარში (.ics)</button>
-                <label for="import-file" class="import-button">იმპორტი</label>
-                <input type="file" id="import-file" accept=".json,.csv" style="display: none;">
-                <button id="clear-all-btn" class="danger-btn">მონაცემების წაშლა</button>
-            </div>
         </div>
     </header>
+
+    <!-- მენიუს ოვერლეი -->
+    <div id="menu-overlay" class="menu-overlay">
+        <div class="menu-content">
+            <nav class="menu-nav">
+                <h3>ნავიგაცია</h3>
+                <div class="menu-items">
+                    <button id="how-it-works-btn" class="nav-btn">როგორ მუშაობს</button>
+                    <button id="faq-btn" class="nav-btn">ხშირად დასმული კითხვები</button>
+                </div>
+            </nav>
+            <div class="menu-actions">
+                <h3>ექსპორტი/იმპორტი</h3>
+                <div class="menu-items">
+                    <button id="export-json-btn">ექსპორტი (JSON)</button>
+                    <button id="export-csv-btn">ექსპორტი (CSV)</button>
+                    <button id="export-ics-btn">ექსპორტი კალენდარში (.ics)</button>
+                    <button id="import-btn" class="import-button">იმპორტი</button>
+                    <input type="file" id="import-file" accept=".json,.csv" style="display: none;">
+                    <button id="clear-all-btn" class="danger-btn">მონაცემების წაშლა</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <main>
         <section id="birthday-list-section">
@@ -196,7 +219,7 @@
     </main>
 
     <footer>
-        <p>&copy; <span id="current-year"></span> დაბადების დღეების აპლიკაცია</p>
+        <p>&copy; <span id="current-year"></span> BdaysApp</p>
     </footer>
 
     <script src="db.js"></script>
