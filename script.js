@@ -100,7 +100,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Core Functions ---
 
     /**
-     * Renders the list of birthdays, applying any search filters.
+     * Renders the list of birthdays, grouped by month-year and sorted by proximity.
+     * 
+     * Features:
+     * - Displays birthdays in chronological order (closest first)
+     * - Groups by month with headers showing month name and year if needed
+     * - Includes days remaining, birthday format and age calculation
+     * - Handles search filtering and highlighting
+     * - Shows future birthdays that span into next calendar year
      */
     async function renderBirthdayList() {
         try {
@@ -119,118 +126,130 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            const birthdaysWithDetails = displayBirthdays.map(b => ({
-                ...b,
-                nextBirthdayDate: getNextBirthdayDate(b.dob),
-                daysLeft: calculateDaysRemaining(b.dob),
-                zodiac: getZodiacSign(b.dob) // Add zodiac for searching
-            }));
-
-            // Filter out any invalid future dates (e.g., dates in 2026)
+            // Date boundaries for validation
             const today = new Date();
-            const oneYearFromNow = new Date(today);
-            oneYearFromNow.setFullYear(today.getFullYear() + 1);
-            
-            const validBirthdays = birthdaysWithDetails.filter(b => {
-                // Validate that the date is not more than 1 year in the future
-                if (b.nextBirthdayDate > oneYearFromNow) {
-                    console.error("Filtered out invalid future birthday:", b.name, b.nextBirthdayDate);
+            const twoYearsFromNow = new Date(today);
+            twoYearsFromNow.setFullYear(today.getFullYear() + 2);
+
+            // Filter out extreme future birth dates (likely data errors)
+            const validBirthdayDobs = displayBirthdays.filter(b => {
+                const dobDate = new Date(b.dob + 'T00:00:00');
+                
+                if (dobDate > twoYearsFromNow) {
+                    console.warn(`Found extremely far future birth date: ${b.name} (${b.dob})`);
                     return false;
                 }
                 return true;
             });
 
-            validBirthdays.sort((a, b) => a.daysLeft - b.daysLeft);
+            // Enhance birthday data with calculated fields
+            const birthdaysWithDetails = validBirthdayDobs.map(b => ({
+                ...b,
+                nextBirthdayDate: getNextBirthdayDate(b.dob),
+                daysLeft: calculateDaysRemaining(b.dob),
+                zodiac: getZodiacSign(b.dob)
+            }));
 
-            const groupedBirthdays = validBirthdays.reduce((acc, b) => {
-                const monthIndex = b.nextBirthdayDate.getMonth();
-                if (!acc[monthIndex]) {
-                    acc[monthIndex] = [];
+            // Sort by days remaining (closest birthdays first)
+            const sortedBirthdays = birthdaysWithDetails.sort((a, b) => a.daysLeft - b.daysLeft);
+
+            // Group by month+year combinations
+            const monthGroups = {};
+            
+            sortedBirthdays.forEach(b => {
+                const nextDate = b.nextBirthdayDate;
+                const monthIndex = nextDate.getMonth();
+                const year = nextDate.getFullYear();
+                const monthYearKey = `${year}-${monthIndex}`;
+                
+                if (!monthGroups[monthYearKey]) {
+                    monthGroups[monthYearKey] = {
+                        monthIndex: monthIndex,
+                        year: year,
+                        birthdays: []
+                    };
                 }
-                acc[monthIndex].push(b);
-                return acc;
-            }, {});
-
-            const currentMonthIndex = new Date().getMonth();
-            const monthOrder = [];
-            for (let i = 0; i < 12; i++) {
-                monthOrder.push((currentMonthIndex + i) % 12);
-            }
-
-            let foundBirthdays = false;
-            monthOrder.forEach(monthIndex => {
-                if (groupedBirthdays[monthIndex]) {
-                    foundBirthdays = true;
-                    // Add month header using Georgian names array
-                    const monthName = georgianMonths[monthIndex]; 
-                    if (!monthName) { 
-                        console.error("Invalid month index:", monthIndex);
-                        return; 
-                    }
-                    const headerLi = document.createElement('li');
-                    headerLi.classList.add('month-header');
-                    headerLi.textContent = monthName;
-                    birthdayListUl.appendChild(headerLi);
-
-                    // Add birthdays for this month
-                    groupedBirthdays[monthIndex].forEach(b => {
-                        const li = document.createElement('li');
-                        li.dataset.id = b.id; // Store ID for click handling
-
-                        const age = calculateAge(b.dob);
-                        let nextBirthdayFormatted = 'თარიღის შეცდომა'; // Default error message
-                        try {
-                             nextBirthdayFormatted = new Intl.DateTimeFormat('ka-GE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).format(b.nextBirthdayDate);
-                        } catch (e) {
-                            console.error("Error formatting date for list item:", b.nextBirthdayDate, e);
-                        }
-
-                        // If searching, highlight matching text
-                        let nameDisplay = b.name;
-                        let dateDisplay = nextBirthdayFormatted;
-                        
-                        if (currentSearchTerm) {
-                            const searchLower = currentSearchTerm.toLowerCase();
-                            
-                            if (b.name.toLowerCase().includes(searchLower)) {
-                                nameDisplay = highlightMatch(b.name, searchLower);
-                            }
-                            
-                            // Try to highlight date if it's a match
-                            if (nextBirthdayFormatted.toLowerCase().includes(searchLower)) {
-                                dateDisplay = highlightMatch(nextBirthdayFormatted, searchLower);
-                            }
-                            
-                            // If zodiac is being searched
-                            if (b.zodiac.toLowerCase().includes(searchLower)) {
-                                // Maybe add a small zodiac indicator that's highlighted
-                                dateDisplay += ` • <span class="highlight">${b.zodiac}</span>`;
-                            }
-                        }
-
-                        li.innerHTML = `
-                            <div class="icon">🎂</div>
-                            <div class="info">
-                                <div class="name">${nameDisplay}</div>
-                                <div class="date">${dateDisplay} • გახდება ${age + 1}</div>
-                            </div>
-                            <div class="days-left">
-                                ${b.daysLeft === 0 ? 'დღეს!' : b.daysLeft}
-                                <span>${b.daysLeft !== 0 ? 'დღე' : ''}</span>
-                            </div>
-                        `;
-                        li.addEventListener('click', () => showDetailView(b.id));
-                        birthdayListUl.appendChild(li);
-                    });
-                }
+                
+                monthGroups[monthYearKey].birthdays.push(b);
             });
-
-             if (!foundBirthdays && displayBirthdays.length > 0) {
-                 console.warn("No birthdays found to render, although data exists. Check grouping/filtering logic.");
-                 birthdayListUl.innerHTML = '<li class="loading">ვერ მოიძებნა შესაბამისი დაბადების დღეები.</li>';
-             } else if (!foundBirthdays && displayBirthdays.length === 0) {
-                 birthdayListUl.innerHTML = '<li class="loading">დაბადების დღეები არ არის დამატებული.</li>';
-             }
+            
+            // Sort month groups chronologically
+            const sortedMonthGroups = Object.values(monthGroups).sort((a, b) => {
+                if (a.year !== b.year) {
+                    return a.year - b.year; // Sort by year first
+                }
+                return a.monthIndex - b.monthIndex; // Then by month
+            });
+            
+            // Render the groups with month headers
+            sortedMonthGroups.forEach(group => {
+                const monthName = georgianMonths[group.monthIndex];
+                const headerLi = document.createElement('li');
+                headerLi.classList.add('month-header');
+                
+                // Add year to month header if it's not the current year
+                if (group.year > today.getFullYear()) {
+                    headerLi.textContent = `${monthName} ${group.year}`;
+                } else {
+                    headerLi.textContent = monthName;
+                }
+                birthdayListUl.appendChild(headerLi);
+                
+                // Render individual birthdays for this month-year group
+                group.birthdays.forEach(b => {
+                    const li = document.createElement('li');
+                    li.dataset.id = b.id;
+                    
+                    const age = calculateAge(b.dob);
+                    let nextBirthdayFormatted = 'თარიღის შეცდომა';
+                    try {
+                         nextBirthdayFormatted = new Intl.DateTimeFormat('ka-GE', { 
+                             weekday: 'short', 
+                             day: 'numeric', 
+                             month: 'short', 
+                             year: 'numeric' 
+                         }).format(b.nextBirthdayDate);
+                    } catch (e) {
+                        console.error("Error formatting date for list item:", b.nextBirthdayDate, e);
+                    }
+                    
+                    // Handle search term highlighting
+                    let nameDisplay = b.name;
+                    let dateDisplay = nextBirthdayFormatted;
+                    
+                    if (currentSearchTerm) {
+                        const searchLower = currentSearchTerm.toLowerCase();
+                        
+                        if (b.name.toLowerCase().includes(searchLower)) {
+                            nameDisplay = highlightMatch(b.name, searchLower);
+                        }
+                        
+                        if (nextBirthdayFormatted.toLowerCase().includes(searchLower)) {
+                            dateDisplay = highlightMatch(nextBirthdayFormatted, searchLower);
+                        }
+                        
+                        if (b.zodiac.toLowerCase().includes(searchLower)) {
+                            dateDisplay += ` • <span class="highlight">${b.zodiac}</span>`;
+                        }
+                    }
+                    
+                    // Create the birthday list item
+                    li.innerHTML = `
+                        <div class="icon">🎂</div>
+                        <div class="info">
+                            <div class="name">${nameDisplay}</div>
+                            <div class="date">${dateDisplay} • გახდება ${age + 1}</div>
+                        </div>
+                        <div class="days-left">
+                            ${b.daysLeft === 0 ? 'დღეს!' : b.daysLeft}
+                            <span>${b.daysLeft !== 0 ? 'დღე' : ''}</span>
+                        </div>
+                    `;
+                    
+                    li.addEventListener('click', () => showDetailView(b.id));
+                    birthdayListUl.appendChild(li);
+                });
+            });
 
         } catch (error) {
             console.error("Error rendering birthday list:", error);
@@ -1035,33 +1054,35 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Initial Load ---
     async function initializeApp() {
         try {
-            console.log("Initializing app...");
-            
-            // Update footer year
-            updateFooterYear();
-            
-            // Initialize theme
-            initTheme();
-            
-            // Clear ALL listeners first!
-            clearExistingEventListeners();
-            
-            // Set up event listeners
+            // Initialize the database
+            await window.db.getAllBirthdays(); // This will trigger database initialization
+
+            // Cleanup any invalid future dates in the database
+            try {
+                const fixedCount = await window.db.cleanupInvalidFutureDates();
+                if (fixedCount > 0) {
+                    console.log(`Fixed ${fixedCount} invalid future dates in the database.`);
+                }
+            } catch (cleanupError) {
+                console.error("Error during invalid date cleanup:", cleanupError);
+            }
+
+            // Attach event listeners
             initializeEventListeners();
             
-            // Make sure we're starting with the list view
-            showView('list');
+            // Update the footer year
+            updateFooterYear();
             
-            // Render the birthday list
+            // Set initial theme
+            initTheme();
+            
+            // Render the initial birthday list
             await renderBirthdayList();
             
-            // Create initial localStorage backup
-            createLocalStorageBackup();
-            
-            console.log("App initialized successfully.");
+            // Show the list view initially
+            showView('list');
         } catch (error) {
             console.error("Error initializing app:", error);
-            alert("აპლიკაციის ინიციალიზაციის შეცდომა");
         }
     }
 
@@ -1438,7 +1459,10 @@ document.addEventListener('DOMContentLoaded', () => {
         currentImportFileInput._hasChangeListener = true;
         
         clearAllBtn.addEventListener('click', handleClearAll);
-        repairDbBtn.addEventListener('click', repairDatabase);
+        repairDbBtn.addEventListener('click', async () => {
+            closeMenu();
+            await repairInvalidDates();
+        });
         
         // Add event listener for database optimization button
         const optimizeDbBtn = document.getElementById('optimize-db-btn');
@@ -1778,6 +1802,41 @@ document.addEventListener('DOMContentLoaded', () => {
             
             alert("შეცდომა ბაზის ოპტიმიზაციისას: " + error.message + 
                   "\n\nგთხოვთ, გადატვირთოთ გვერდი და სცადოთ ხელახლა.");
+        }
+    }
+
+    /**
+     * Repairs any invalid date entries in the database.
+     * Use case: When a user accidentally enters a birth date in the future.
+     * 
+     * This function:
+     * 1. Shows a loading message
+     * 2. Calls the database repair function to fix invalid dates
+     * 3. Displays the results and refreshes the list
+     */
+    async function repairInvalidDates() {
+        try {
+            // Show a loading message
+            birthdayListUl.innerHTML = '<li class="loading">ვამოწმებ შეცდომებს მონაცემთა ბაზაში...</li>';
+            
+            // Call the database repair function
+            const fixCount = await window.db.cleanupInvalidFutureDates();
+            
+            // Show results with auto-refresh
+            setTimeout(() => {
+                if (fixCount > 0) {
+                    birthdayListUl.innerHTML = `<li class="loading success">წარმატებით გასწორდა ${fixCount} არასწორი თარიღი.</li>`;
+                } else {
+                    birthdayListUl.innerHTML = '<li class="loading success">არ მოიძებნა არასწორი თარიღები.</li>';
+                }
+                
+                // Refresh the list after displaying result
+                setTimeout(() => renderBirthdayList(), 1500);
+            }, 500);
+        } catch (error) {
+            console.error("Error repairing invalid dates:", error);
+            birthdayListUl.innerHTML = '<li class="loading error">შეცდომა შესწორების მცდელობისას. სცადეთ თავიდან.</li>';
+            setTimeout(() => renderBirthdayList(), 2000);
         }
     }
 

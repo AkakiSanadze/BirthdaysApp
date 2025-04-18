@@ -453,6 +453,58 @@ async function clearAllBirthdays() {
     });
 }
 
+/**
+ * Repairs the database by correcting invalid future dates.
+ * This specifically targets birth dates that are in the future (which is impossible).
+ * 
+ * Logic:
+ * - Finds any birthday with a date of birth in the future
+ * - Corrects by keeping the same month/day but setting the year to the current year
+ * - Preserves all other data
+ * 
+ * @returns {Promise<number>} Number of records fixed
+ */
+async function cleanupInvalidFutureDates() {
+    try {
+        console.log("Starting cleanup of invalid future dates...");
+        const db = await openDB();
+        const allBirthdays = await getAllBirthdays();
+        
+        // Get current date for validation
+        const today = new Date();
+        let fixCount = 0;
+        
+        // Check each birthday for invalid future date
+        for (const birthday of allBirthdays) {
+            const dobDate = new Date(birthday.dob + 'T00:00:00');
+            
+            // Check if the birth date itself is in the future (impossible)
+            if (dobDate > today) {
+                console.warn(`Found future birth date for ${birthday.name}: ${birthday.dob}`);
+                
+                // Fix: Keep same month/day but set year to current year
+                const fixedDate = new Date(today.getFullYear(), 
+                                          dobDate.getMonth(), 
+                                          dobDate.getDate());
+                
+                // Format as YYYY-MM-DD
+                birthday.dob = fixedDate.toISOString().split('T')[0];
+                
+                // Update the record
+                await updateBirthday(birthday);
+                fixCount++;
+                console.log(`Fixed invalid future birth date for ${birthday.name}`);
+            }
+        }
+        
+        console.log(`Completed cleanup of invalid future dates. Fixed ${fixCount} records.`);
+        return fixCount;
+    } catch (error) {
+        console.error("Error cleaning up invalid future dates:", error);
+        throw error;
+    }
+}
+
 // Export functions for use in other scripts
 window.db = {
     openDB,
@@ -461,7 +513,8 @@ window.db = {
     getBirthdayById,
     updateBirthday,
     deleteBirthday,
-    clearAllBirthdays
+    clearAllBirthdays,
+    cleanupInvalidFutureDates
 };
 
 // Expose constants for use in other scripts

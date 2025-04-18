@@ -19,11 +19,15 @@ function calculateAge(dobString) {
 
 /**
  * Calculates the date of the next birthday.
+ * Handles past birthdays by setting them for next year.
+ * Allows calculating birthdays up to 2 years in the future for proper sorting.
+ * 
  * @param {string} dobString - Date of birth in 'YYYY-MM-DD' format.
  * @returns {Date} The date object representing the next birthday.
  */
 function getNextBirthdayDate(dobString) {
-    if (!dobString) return new Date(); // Should not happen with validation
+    if (!dobString) return new Date();
+    
     const dob = new Date(dobString + 'T00:00:00'); // Ensure local time interpretation
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Normalize today's date to midnight
@@ -31,22 +35,21 @@ function getNextBirthdayDate(dobString) {
     const birthMonth = dob.getMonth();
     const birthDay = dob.getDate();
 
+    // Calculate the next birthday this year
     let nextBirthday = new Date(today.getFullYear(), birthMonth, birthDay);
-    nextBirthday.setHours(0, 0, 0, 0); // Normalize to midnight
+    nextBirthday.setHours(0, 0, 0, 0);
 
     // If the birthday this year has already passed, set it for next year
     if (nextBirthday < today) {
         nextBirthday.setFullYear(today.getFullYear() + 1);
     }
     
-    // Ensure the calculated birthday is never more than one year in the future
-    // This prevents incorrect dates like 2026 from appearing
-    const oneYearFromNow = new Date(today);
-    oneYearFromNow.setFullYear(today.getFullYear() + 1);
+    // Safety check for data integrity - limit to 2 years max
+    const twoYearsFromNow = new Date(today);
+    twoYearsFromNow.setFullYear(today.getFullYear() + 2);
     
-    if (nextBirthday > oneYearFromNow) {
-        console.error("Invalid future birthday detected:", nextBirthday);
-        // Set to a valid date within the next year
+    if (nextBirthday > twoYearsFromNow) {
+        console.error("Invalid far future birthday detected:", nextBirthday);
         return new Date(today.getFullYear(), birthMonth, birthDay);
     }
 
@@ -55,22 +58,24 @@ function getNextBirthdayDate(dobString) {
 
 /**
  * Calculates the number of days remaining until the next birthday.
+ * Uses getNextBirthdayDate for consistency in date calculations.
+ * 
  * @param {string} dobString - Date of birth in 'YYYY-MM-DD' format.
  * @returns {number} The number of days remaining.
  */
 function calculateDaysRemaining(dobString) {
     if (!dobString) return Infinity;
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Normalize today's date to midnight
     const nextBirthday = getNextBirthdayDate(dobString);
     
-    // Validate the next birthday is not too far in the future
-    const oneYearFromNow = new Date(today);
-    oneYearFromNow.setFullYear(today.getFullYear() + 1);
+    // Safety check matching getNextBirthdayDate's limits
+    const twoYearsFromNow = new Date(today);
+    twoYearsFromNow.setFullYear(today.getFullYear() + 2);
     
-    if (nextBirthday > oneYearFromNow) {
+    if (nextBirthday > twoYearsFromNow) {
         console.error("Invalid future birthday date in days calculation:", nextBirthday);
-        // Return a more reasonable value
         return 0;
     }
 
@@ -78,7 +83,7 @@ function calculateDaysRemaining(dobString) {
     const diffTime = nextBirthday - today;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    // If diffDays is 365 or 366 (leap year), it means today is the birthday
+    // Special case: If today is the birthday
     const dob = new Date(dobString + 'T00:00:00');
     if (today.getMonth() === dob.getMonth() && today.getDate() === dob.getDate()) {
         return 0; // It's today!
