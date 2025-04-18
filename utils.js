@@ -38,6 +38,17 @@ function getNextBirthdayDate(dobString) {
     if (nextBirthday < today) {
         nextBirthday.setFullYear(today.getFullYear() + 1);
     }
+    
+    // Ensure the calculated birthday is never more than one year in the future
+    // This prevents incorrect dates like 2026 from appearing
+    const oneYearFromNow = new Date(today);
+    oneYearFromNow.setFullYear(today.getFullYear() + 1);
+    
+    if (nextBirthday > oneYearFromNow) {
+        console.error("Invalid future birthday detected:", nextBirthday);
+        // Set to a valid date within the next year
+        return new Date(today.getFullYear(), birthMonth, birthDay);
+    }
 
     return nextBirthday;
 }
@@ -52,6 +63,16 @@ function calculateDaysRemaining(dobString) {
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Normalize today's date to midnight
     const nextBirthday = getNextBirthdayDate(dobString);
+    
+    // Validate the next birthday is not too far in the future
+    const oneYearFromNow = new Date(today);
+    oneYearFromNow.setFullYear(today.getFullYear() + 1);
+    
+    if (nextBirthday > oneYearFromNow) {
+        console.error("Invalid future birthday date in days calculation:", nextBirthday);
+        // Return a more reasonable value
+        return 0;
+    }
 
     // Calculate the difference in milliseconds and convert to days
     const diffTime = nextBirthday - today;

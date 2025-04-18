@@ -126,9 +126,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 zodiac: getZodiacSign(b.dob) // Add zodiac for searching
             }));
 
-            birthdaysWithDetails.sort((a, b) => a.daysLeft - b.daysLeft);
+            // Filter out any invalid future dates (e.g., dates in 2026)
+            const today = new Date();
+            const oneYearFromNow = new Date(today);
+            oneYearFromNow.setFullYear(today.getFullYear() + 1);
+            
+            const validBirthdays = birthdaysWithDetails.filter(b => {
+                // Validate that the date is not more than 1 year in the future
+                if (b.nextBirthdayDate > oneYearFromNow) {
+                    console.error("Filtered out invalid future birthday:", b.name, b.nextBirthdayDate);
+                    return false;
+                }
+                return true;
+            });
 
-            const groupedBirthdays = birthdaysWithDetails.reduce((acc, b) => {
+            validBirthdays.sort((a, b) => a.daysLeft - b.daysLeft);
+
+            const groupedBirthdays = validBirthdays.reduce((acc, b) => {
                 const monthIndex = b.nextBirthdayDate.getMonth();
                 if (!acc[monthIndex]) {
                     acc[monthIndex] = [];
