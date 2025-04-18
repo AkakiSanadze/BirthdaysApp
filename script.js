@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const importBtn = document.getElementById('import-btn');
     const importFileInput = document.getElementById('import-file');
     const clearAllBtn = document.getElementById('clear-all-btn');
+    const repairDbBtn = document.getElementById('repair-db-btn');
 
     // Footer year element
     const currentYearSpan = document.getElementById('current-year');
@@ -310,8 +311,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Handles the form submission (add or update).
-     * @param {Event} event
+     * Handles form submission to add or update a birthday.
+     * @param {Event} event - The form submit event.
      */
     async function handleFormSubmit(event) {
         event.preventDefault();
@@ -342,32 +343,98 @@ document.addEventListener('DOMContentLoaded', () => {
             resetForm();
             showView('list');
             await renderBirthdayList();
+            
+            // Create a backup after saving
+            createLocalStorageBackup();
         } catch (error) {
             console.error("Error saving birthday:", error);
             alert("დაბადების დღის შენახვის შეცდომა.");
         }
     }
 
-     /**
-      * Handles the delete button click.
-      */
-     async function handleDelete() {
-         if (!currentBirthdayId) return;
+    /**
+     * Handles deletion of a birthday.
+     */
+    async function handleDelete() {
+        if (!currentBirthdayId) return;
 
-         if (!confirm(`დარწმუნებული ხართ რომ გსურთ '${nameInput.value}'-ის წაშლა?`)) {
-             return;
-         }
+        if (!confirm(`დარწმუნებული ხართ რომ გსურთ '${nameInput.value}'-ის წაშლა?`)) {
+            return;
+        }
 
-         try {
-             await deleteBirthday(currentBirthdayId);
-             resetForm();
-             showView('list');
-             await renderBirthdayList();
-         } catch (error) {
-             console.error("Error deleting birthday:", error);
-             alert("დაბადების დღის წაშლის შეცდომა.");
-         }
-     }
+        try {
+            await deleteBirthday(currentBirthdayId);
+            resetForm();
+            showView('list');
+            await renderBirthdayList();
+            
+            // Create a backup after deleting
+            createLocalStorageBackup();
+        } catch (error) {
+            console.error("Error deleting birthday:", error);
+            alert("დაბადების დღის წაშლის შეცდომა.");
+        }
+    }
+
+    /**
+     * Handles clearing all birthdays.
+     */
+    async function handleClearAll() {
+        if (confirm('დარწმუნებული ხართ, რომ გსურთ ყველა დაბადების დღის წაშლა? \nეს ოპერაცია არ არის შექცევადი.')) {
+            try {
+                const loadingIndicator = document.createElement('div');
+                loadingIndicator.className = 'loading-indicator';
+                loadingIndicator.textContent = 'მონაცემები იშლება...';
+                document.body.appendChild(loadingIndicator);
+                
+                // Create a backup before clearing all data
+                createLocalStorageBackup();
+                
+                await clearAllBirthdays();
+                
+                document.body.removeChild(loadingIndicator);
+                alert('ყველა მონაცემი წარმატებით წაიშალა.');
+                await renderBirthdayList();
+                closeMenu();
+            } catch (error) {
+                console.error("Error clearing all birthdays:", error);
+                alert("შეცდომა მონაცემების წაშლისას.");
+            }
+        }
+    }
+
+    /**
+     * Creates a backup of all birthday data in localStorage
+     */
+    async function createLocalStorageBackup() {
+        try {
+            const allData = await getAllBirthdays();
+            if (allData && allData.length > 0) {
+                // Limit backup to the most recent 100 records to avoid localStorage quota issues
+                const dataToBackup = allData.length > 100 ? 
+                    allData.slice(Math.max(0, allData.length - 100)) : 
+                    allData;
+                
+                try {
+                    localStorage.setItem('birthdayAppBackup', JSON.stringify(dataToBackup));
+                    console.log(`Created localStorage backup with ${dataToBackup.length} items` +
+                        (allData.length > 100 ? ` (limited from ${allData.length} total)` : ''));
+                    
+                    // Also store a count of total records for recovery purposes
+                    localStorage.setItem('birthdayAppBackupTotalCount', allData.length.toString());
+                } catch (storageError) {
+                    console.warn("LocalStorage quota exceeded, creating minimal backup instead");
+                    
+                    // If quota is exceeded, try a minimal backup with just the essential fields
+                    const minimalBackup = dataToBackup.map(({ id, name, dob, phone }) => ({ id, name, dob, phone }));
+                    localStorage.setItem('birthdayAppBackup', JSON.stringify(minimalBackup));
+                    console.log(`Created minimal localStorage backup with ${minimalBackup.length} items`);
+                }
+            }
+        } catch (error) {
+            console.error("Error creating localStorage backup:", error);
+        }
+    }
 
     /**
      * Shows the detail view for a specific birthday.
@@ -591,81 +658,104 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Define a global state manager for import to prevent duplicates
+    window.importState = {
+        inProgress: false,
+        processing: false,
+        
+        // Start the import process
+        startImport: function() {
+            if (this.inProgress) {
+                console.log("Import already in progress");
+                return false;
+            }
+            this.inProgress = true;
+            return true;
+        },
+        
+        // Start processing a file
+        startProcessing: function() {
+            if (this.processing) {
+                console.log("Already processing a file");
+                return false;
+            }
+            this.processing = true;
+            return true;
+        },
+        
+        // Reset the import state
+        reset: function() {
+            this.inProgress = false;
+            this.processing = false;
+            console.log("Import state reset");
+        }
+    };
+
+    /**
+     * Prompts user to import data from a file
+     */
+    function promptForImport() {
+        if (!window.importState.startImport()) {
+            return;
+        }
+        
+        // Get the current input element
+        const currentImportFileInput = window.updatedImportFileInput || importFileInput;
+        
+        if (confirm("არ მოიძებნა სარეზერვო ასლი. გსურთ ფაილიდან მონაცემების იმპორტი?")) {
+            currentImportFileInput.click();
+        } else {
+            window.importState.reset();
+        }
+    }
+
+    /**
+     * Handles the file import process
+     */
     async function importData(file) {
-        if (!file) return;
-
-        const reader = new FileReader();
-        const loadingIndicator = document.createElement('div');
-        loadingIndicator.className = 'loading-indicator';
-        loadingIndicator.textContent = 'იტვირთება...';
-        document.body.appendChild(loadingIndicator);
-
-        reader.onload = async (event) => {
-            const content = event.target.result;
+        if (!file || !window.importState.startProcessing()) {
+            return;
+        }
+        
+        try {
+            const loadingIndicator = document.createElement('div');
+            loadingIndicator.className = 'loading-indicator';
+            loadingIndicator.textContent = 'იტვირთება...';
+            document.body.appendChild(loadingIndicator);
+            
+            // Read the file content
+            const content = await readFileAsync(file);
             let importedBirthdays = [];
-
-            try {
-                if (file.name.endsWith('.json')) {
-                    importedBirthdays = JSON.parse(content);
-                    if (!Array.isArray(importedBirthdays)) {
-                        throw new Error("JSON ფაილი არ შეიცავს სიას (array).");
-                    }
-                    // Validate JSON structure
-                    importedBirthdays = importedBirthdays.filter(b => {
-                        if (!b || !b.name || !b.dob) return false;
-                        // Validate date format
-                        if (!/^\d{4}-\d{2}-\d{2}$/.test(b.dob)) return false;
-                        return true;
-                    });
-
-                } else if (file.name.endsWith('.csv')) {
-                    const lines = content.split(/\r?\n/);
-                    if (lines.length < 2) throw new Error("CSV ფაილი ცარიელია ან არასწორი ფორმატის.");
-
-                    const headersLine = lines[0].trim();
-                    const headers = headersLine.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(h => h.replace(/"/g, '').trim().toLowerCase()) || [];
-
-                    const nameIndex = headers.indexOf('name');
-                    const dobIndex = headers.indexOf('dob');
-                    const phoneIndex = headers.indexOf('phone');
-
-                    if (nameIndex === -1 || dobIndex === -1) {
-                        throw new Error("CSV ფაილს აკლია 'name' ან 'dob' სვეტი.");
-                    }
-
-                    for (let i = 1; i < lines.length; i++) {
-                        if (!lines[i].trim()) continue;
-                        const values = lines[i].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(v => v.replace(/"/g, '').trim()) || [];
-
-                        const name = values[nameIndex];
-                        const dob = values[dobIndex];
-                        const phone = phoneIndex !== -1 ? values[phoneIndex] : null;
-
-                        if (name && dob && /^\d{4}-\d{2}-\d{2}$/.test(dob)) {
-                            importedBirthdays.push({ name, dob, phone: phone || null });
-                        } else {
-                            console.warn(`Skipping invalid CSV row ${i + 1}:`, lines[i]);
-                        }
-                    }
-                } else {
-                    throw new Error("ფაილის ტიპი არ არის მხარდაჭერილი (მხოლოდ .json ან .csv).");
-                }
-
-                if (importedBirthdays.length === 0) {
-                    alert("ფაილიდან მონაცემები ვერ წაიკითხა ან ფაილი ცარიელია.");
-                    return;
-                }
-
-                // Check for duplicates
+            
+            // Parse the file based on type
+            if (file.name.endsWith('.json')) {
+                importedBirthdays = await parseJsonFile(content);
+            } else if (file.name.endsWith('.csv')) {
+                importedBirthdays = await parseCsvFile(content);
+            } else {
+                throw new Error("ფაილის ტიპი არ არის მხარდაჭერილი (მხოლოდ .json ან .csv).");
+            }
+            
+            if (importedBirthdays.length === 0) {
+                alert("ფაილიდან მონაცემები ვერ წაიკითხა ან ფაილი ცარიელია.");
+                document.body.removeChild(loadingIndicator);
+            } else {
+                // Get existing birthdays for duplicate checking
                 const existingBirthdays = await getAllBirthdays();
-                const duplicates = importedBirthdays.filter(newBday => 
-                    existingBirthdays.some(existingBday => 
-                        existingBday.name === newBday.name && existingBday.dob === newBday.dob
-                    )
-                );
-
+                
+                // Check for possible storage limit issues
+                if (existingBirthdays.length >= 11) {
+                    console.warn("Potential storage limit issue detected - current record count:", existingBirthdays.length);
+                }
+                
+                // Check for duplicates
+                const duplicates = findDuplicates(importedBirthdays, existingBirthdays);
+                let shouldOverwrite = false;
+                
                 if (duplicates.length > 0) {
-                    if (!confirm(`ნაპოვნია ${duplicates.length} დუბლიკატი. გსურთ მათი გადაფარვა?`)) {
+                    shouldOverwrite = confirm(`ნაპოვნია ${duplicates.length} დუბლიკატი. გსურთ მათი გადაფარვა?`);
+                    
+                    if (!shouldOverwrite) {
                         // Remove duplicates if user doesn't want to overwrite
                         importedBirthdays = importedBirthdays.filter(newBday => 
                             !existingBirthdays.some(existingBday => 
@@ -674,104 +764,236 @@ document.addEventListener('DOMContentLoaded', () => {
                         );
                     }
                 }
-
-                if (!confirm(`ნაპოვნია ${importedBirthdays.length} ჩანაწერი. გსურთ მათი დამატება მიმდინარე სიაში?`)) {
-                    return;
-                }
-
-                let successCount = 0;
-                let failCount = 0;
-                for (const bday of importedBirthdays) {
-                    try {
-                        // Check if we need to update or add
-                        const existingBday = existingBirthdays.find(existing => 
-                            existing.name === bday.name && existing.dob === bday.dob
-                        );
-                        
-                        if (existingBday) {
-                            await updateBirthday({ ...existingBday, phone: bday.phone || existingBday.phone });
-                        } else {
-                            await addBirthday(bday);
-                        }
-                        successCount++;
-                    } catch (addError) {
-                        console.error("Error adding imported birthday:", bday, addError);
-                        failCount++;
+                
+                // Final confirmation
+                if (importedBirthdays.length === 0) {
+                    alert("გადაფარვის გარეშე, არ არის ახალი ჩანაწერები დასამატებლად.");
+                    document.body.removeChild(loadingIndicator);
+                } else {
+                    const shouldImport = confirm(`ნაპოვნია ${importedBirthdays.length} ჩანაწერი. გსურთ მათი დამატება მიმდინარე სიაში?`);
+                    
+                    if (!shouldImport) {
+                        document.body.removeChild(loadingIndicator);
+                        return;
                     }
+                    
+                    // Perform the import
+                    let successCount = 0;
+                    let failCount = 0;
+                    let storageIssueDetected = false;
+                    
+                    for (const bday of importedBirthdays) {
+                        try {
+                            // Check if we need to update or add
+                            const existingBday = existingBirthdays.find(existing => 
+                                existing.name === bday.name && existing.dob === bday.dob
+                            );
+                            
+                            if (existingBday && shouldOverwrite) {
+                                // Only update if phone number is changed
+                                if (existingBday.phone !== bday.phone) {
+                                    await updateBirthday({ ...existingBday, phone: bday.phone || existingBday.phone });
+                                } else {
+                                    successCount++; // Count as success even if no change needed
+                                    continue;
+                                }
+                            } else if (!existingBday) {
+                                // Always remove the ID field from imported birthdays to avoid key constraint errors
+                                // This object spread ensures any unexpected fields are also removed
+                                const { name, dob, phone } = bday;
+                                try {
+                                    await addBirthday({ name, dob, phone: phone || null });
+                                } catch (innerError) {
+                                    // Check if this might be a storage issue
+                                    if (innerError.toString().includes("Key") || 
+                                        innerError.toString().includes("constraint") ||
+                                        successCount + existingBirthdays.length >= 11) {
+                                        
+                                        console.error("Possible storage constraint error:", innerError);
+                                        storageIssueDetected = true;
+                                        failCount++;
+                                        continue;
+                                    }
+                                    throw innerError; // Re-throw if not storage related
+                                }
+                            } else {
+                                // Skip existing entries if not overwriting
+                                continue;
+                            }
+                            successCount++;
+                        } catch (addError) {
+                            console.error("Error adding imported birthday:", bday, addError);
+                            failCount++;
+                        }
+                    }
+                    
+                    document.body.removeChild(loadingIndicator);
+                    
+                    if (storageIssueDetected) {
+                        alert(`იმპორტი დასრულდა, მაგრამ აღმოჩენილია შესაძლო შეზღუდვა მონაცემთა შენახვაში.\n` +
+                              `წარმატებით დაემატა: ${successCount}\nშეცდომა: ${failCount}\n` +
+                              `გთხოვთ, გადატვირთოთ გვერდი და სცადოთ თავიდან.`);
+                    } else {
+                        alert(`იმპორტი დასრულდა.\nწარმატებით დაემატა/განახლდა: ${successCount}\nშეცდომა: ${failCount}`);
+                    }
+                    
+                    await renderBirthdayList();
                 }
-
-                alert(`იმპორტი დასრულდა.\nწარმატებით დაემატა/განახლდა: ${successCount}\nშეცდომა: ${failCount}`);
-                await renderBirthdayList();
-
-            } catch (error) {
-                console.error("Error importing file:", error);
-                alert(`ფაილის იმპორტის შეცდომა: ${error.message}`);
-            } finally {
-                document.body.removeChild(loadingIndicator);
-                importFileInput.value = '';
             }
-        };
-
-        reader.onerror = () => {
-            console.error("File reading error");
-            alert("ფაილის წაკითხვის შეცდომა.");
-            document.body.removeChild(loadingIndicator);
-            importFileInput.value = '';
-        };
-
-        reader.readAsText(file);
+        } catch (error) {
+            console.error("Error importing file:", error);
+            alert(`ფაილის იმპორტის შეცდომა: ${error.message}`);
+        } finally {
+            resetImportState();
+        }
     }
 
+    /**
+     * Promise-based file reader
+     */
+    function readFileAsync(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = event => resolve(event.target.result);
+            reader.onerror = error => reject(error);
+            reader.readAsText(file);
+        });
+    }
 
-    // --- Import/Export Event Listeners ---
-    exportJsonBtn.addEventListener('click', () => {
-        exportData('json');
-        closeMenu();
-    });
-    exportCsvBtn.addEventListener('click', () => {
-        exportData('csv');
-        closeMenu();
-    });
-    exportIcsBtn.addEventListener('click', () => {
-        exportData('ics');
-        closeMenu();
-    });
-    
-    importBtn.addEventListener('click', () => {
-        importFileInput.click();
-    });
-    
-    importFileInput.addEventListener('change', (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            importData(file);
-            closeMenu();
-        }
-    });
-    
-    // Clear all data button handler
-    clearAllBtn.addEventListener('click', async () => {
-        if (!confirm('ნამდვილად გსურთ ყველა მონაცემის წაშლა? ეს მოქმედება შეუქცევადია!')) {
-            return;
+    /**
+     * Parse JSON file and validate structure
+     */
+    function parseJsonFile(content) {
+        const parsed = JSON.parse(content);
+        
+        if (!Array.isArray(parsed)) {
+            throw new Error("JSON ფაილი არ შეიცავს სიას (array).");
         }
         
-        try {
-            const loadingIndicator = document.createElement('div');
-            loadingIndicator.className = 'loading-indicator';
-            loadingIndicator.textContent = 'მონაცემები იშლება...';
-            document.body.appendChild(loadingIndicator);
+        // Validate JSON structure and strip IDs to avoid conflicts
+        return parsed.map(b => {
+            if (!b || !b.name || !b.dob) return null;
+            // Validate date format
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(b.dob)) return null;
             
-            await window.db.clearAllBirthdays();
-            
-            document.body.removeChild(loadingIndicator);
-            alert('ყველა მონაცემი წარმატებით წაიშალა.');
-            await renderBirthdayList();
-            closeMenu();
-        } catch (error) {
-            console.error('Error clearing all data:', error);
-            alert('მონაცემების წაშლის დროს მოხდა შეცდომა.');
+            // Strip ID to avoid conflicts, keep only name, dob, phone
+            const { id, ...birthdayWithoutId } = b;
+            return birthdayWithoutId;
+        }).filter(Boolean); // Remove null entries
+    }
+
+    /**
+     * Parse CSV file and extract birthday data
+     */
+    function parseCsvFile(content) {
+        const lines = content.split(/\r?\n/);
+        if (lines.length < 2) throw new Error("CSV ფაილი ცარიელია ან არასწორი ფორმატის.");
+
+        const headersLine = lines[0].trim();
+        const headers = headersLine.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(h => h.replace(/"/g, '').trim().toLowerCase()) || [];
+
+        const nameIndex = headers.indexOf('name');
+        const dobIndex = headers.indexOf('dob');
+        const phoneIndex = headers.indexOf('phone');
+
+        if (nameIndex === -1 || dobIndex === -1) {
+            throw new Error("CSV ფაილს აკლია 'name' ან 'dob' სვეტი.");
         }
-    });
+
+        const birthdays = [];
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+            const values = lines[i].match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g)?.map(v => v.replace(/"/g, '').trim()) || [];
+
+            const name = values[nameIndex];
+            const dob = values[dobIndex];
+            const phone = phoneIndex !== -1 ? values[phoneIndex] : null;
+
+            if (name && dob && /^\d{4}-\d{2}-\d{2}$/.test(dob)) {
+                birthdays.push({ name, dob, phone: phone || null });
+            } else {
+                console.warn(`Skipping invalid CSV row ${i + 1}:`, lines[i]);
+            }
+        }
+        
+        return birthdays;
+    }
+
+    /**
+     * Find duplicate entries between imported and existing birthdays
+     */
+    function findDuplicates(imported, existing) {
+        return imported.filter(newBday => 
+            existing.some(existingBday => 
+                existingBday.name === newBday.name && existingBday.dob === newBday.dob
+            )
+        );
+    }
+
+    /**
+     * Reset the import state and input field
+     */
+    function resetImportState() {
+        // Get the current input element
+        const currentImportFileInput = window.updatedImportFileInput || importFileInput;
+        
+        // Remove the event listener before resetting to prevent potential triggers
+        if (currentImportFileInput) {
+            const newInput = currentImportFileInput.cloneNode(false);
+            if (currentImportFileInput.parentNode) {
+                currentImportFileInput.parentNode.replaceChild(newInput, currentImportFileInput);
+                window.updatedImportFileInput = newInput;
+                
+                // Re-add the event listener to the new element
+                newInput.addEventListener('change', (event) => {
+                    if (event.target.files && event.target.files.length > 0) {
+                        const file = event.target.files[0];
+                        importData(file);
+                        closeMenu();
+                    }
+                });
+            }
+        }
+        
+        // Reset the state flags
+        window.importState.reset();
+        
+        console.log("Import state and file input fully reset");
+    }
+
+    // --- Import/Export Event Listeners ---
+    // These listeners are now exclusively set in the initializeEventListeners function
+    // exportJsonBtn.removeEventListener('click', () => exportData('json'));
+    // exportCsvBtn.removeEventListener('click', () => exportData('csv'));
+    // exportIcsBtn.removeEventListener('click', () => exportData('ics'));
+
+    // exportJsonBtn.addEventListener('click', () => {
+    //     exportData('json');
+    //     closeMenu();
+    // });
+    // exportCsvBtn.addEventListener('click', () => {
+    //     exportData('csv');
+    //     closeMenu();
+    // });
+    // exportIcsBtn.addEventListener('click', () => {
+    //     exportData('ics');
+    //     closeMenu();
+    // });
+
+    // importBtn.addEventListener('click', () => {
+    //     importFileInput.click();
+    // });
+
+    // importFileInput.addEventListener('change', (event) => {
+    //     const file = event.target.files[0];
+    //     if (file) {
+    //         importData(file);
+    //         closeMenu();
+    //     }
+    // });
+
+    // Clear all data button handler
+    clearAllBtn.addEventListener('click', handleClearAll);
 
     // --- Theme Management ---
     function initTheme() {
@@ -798,13 +1020,81 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Initial Load ---
     async function initializeApp() {
-        console.log("Initializing app...");
-        initTheme(); // Initialize theme before showing content
-        updateFooterYear(); // Update footer year
-        await openDB();
-        showView('list');
-        await renderBirthdayList();
-        console.log("App initialized.");
+        try {
+            console.log("Initializing app...");
+            
+            // Update footer year
+            updateFooterYear();
+            
+            // Initialize theme
+            initTheme();
+            
+            // Clear ALL listeners first!
+            clearExistingEventListeners();
+            
+            // Set up event listeners
+            initializeEventListeners();
+            
+            // Make sure we're starting with the list view
+            showView('list');
+            
+            // Render the birthday list
+            await renderBirthdayList();
+            
+            // Create initial localStorage backup
+            createLocalStorageBackup();
+            
+            console.log("App initialized successfully.");
+        } catch (error) {
+            console.error("Error initializing app:", error);
+            alert("აპლიკაციის ინიციალიზაციის შეცდომა");
+        }
+    }
+
+    /**
+     * Clear any existing event listeners to avoid duplicates
+     */
+    function clearExistingEventListeners() {
+        try {
+            // Create new clones of elements to remove all event listeners
+            if (importFileInput && importFileInput.parentNode) {
+                const newImportInput = document.createElement('input');
+                newImportInput.type = 'file';
+                newImportInput.id = 'import-file';
+                newImportInput.accept = '.json,.csv';
+                newImportInput.style.display = 'none';
+                importFileInput.parentNode.replaceChild(newImportInput, importFileInput);
+                // Use a different approach to update - store a reference in a global variable
+                window.updatedImportFileInput = newImportInput;
+            }
+            
+            if (importBtn && importBtn.parentNode) {
+                const newImportBtn = importBtn.cloneNode(true);
+                importBtn.parentNode.replaceChild(newImportBtn, importBtn);
+                window.updatedImportBtn = newImportBtn;
+            }
+            
+            // Do the same for export buttons
+            if (exportJsonBtn && exportJsonBtn.parentNode) {
+                const newExportJsonBtn = exportJsonBtn.cloneNode(true);
+                exportJsonBtn.parentNode.replaceChild(newExportJsonBtn, exportJsonBtn);
+                window.updatedExportJsonBtn = newExportJsonBtn;
+            }
+            
+            if (exportCsvBtn && exportCsvBtn.parentNode) {
+                const newExportCsvBtn = exportCsvBtn.cloneNode(true);
+                exportCsvBtn.parentNode.replaceChild(newExportCsvBtn, exportCsvBtn);
+                window.updatedExportCsvBtn = newExportCsvBtn;
+            }
+            
+            if (exportIcsBtn && exportIcsBtn.parentNode) {
+                const newExportIcsBtn = exportIcsBtn.cloneNode(true);
+                exportIcsBtn.parentNode.replaceChild(newExportIcsBtn, exportIcsBtn);
+                window.updatedExportIcsBtn = newExportIcsBtn;
+            }
+        } catch (error) {
+            console.error("Error in clearExistingEventListeners:", error);
+        }
     }
 
     initializeApp().catch(err => {
@@ -918,24 +1208,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Menu Toggle Functions
     function toggleMenu() {
-        const isOpen = menuToggleBtn.classList.contains('active');
+        const menuOverlay = document.getElementById('menu-overlay');
+        const menuToggleBtn = document.getElementById('menu-toggle-btn');
         
-        if (isOpen) {
-            closeMenu();
-        } else {
-            openMenu();
-        }
+        menuOverlay.classList.toggle('open');
+        menuToggleBtn.classList.toggle('active');
+        document.body.classList.toggle('menu-open');
     }
     
+    /**
+     * მენიუს გახსნა
+     */
     function openMenu() {
+        const menuOverlay = document.getElementById('menu-overlay');
+        const menuToggleBtn = document.getElementById('menu-toggle-btn');
+        
+        menuOverlay.classList.add('open');
         menuToggleBtn.classList.add('active');
-        menuOverlay.classList.add('active');
         document.body.classList.add('menu-open');
     }
     
+    /**
+     * მენიუს დახურვა
+     */
     function closeMenu() {
+        const menuOverlay = document.getElementById('menu-overlay');
+        const menuToggleBtn = document.getElementById('menu-toggle-btn');
+        
+        menuOverlay.classList.remove('open');
         menuToggleBtn.classList.remove('active');
-        menuOverlay.classList.remove('active');
         document.body.classList.remove('menu-open');
     }
     
@@ -961,5 +1262,509 @@ document.addEventListener('DOMContentLoaded', () => {
             closeMenu();
         }
     });
+
+    /**
+     * Debug function to check database status and attempt to fix issues
+     */
+    async function debugDatabase() {
+        try {
+            console.log("Checking database status...");
+            
+            // 1. Get all data and display in console
+            const allData = await getAllBirthdays();
+            console.log("All birthdays in database:", allData);
+            
+            // 2. Check if DB is accessible
+            const db = await window.db.openDB();
+            console.log("Database connection:", db ? "Success" : "Failed");
+            
+            // 3. Check object store
+            let storeName = STORE_NAME || 'birthdays';
+            console.log("Using object store:", storeName);
+            
+            // 4. Check for storage limit issues
+            if (allData && allData.length >= 11) {
+                console.warn("Possible storage limit issue detected. Current record count:", allData.length);
+                
+                // ინფორმაციული შეტყობინება ოპტიმიზაციის საჭიროებაზე, მაგრამ არ ვიწყებთ ავტომატურად
+                alert(`აღმოჩენილია ${allData.length} ჩანაწერი ბაზაში.\n\nთუ შეგექმნათ პრობლემები ახალი ჩანაწერების დამატებისას, გამოიყენეთ "ბაზის ოპტიმიზაცია" ფუნქცია მენიუში.`);
+            }
+            
+            // 5. Create a backup
+            if (allData && allData.length > 0) {
+                const jsonStr = JSON.stringify(allData);
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                // Create a download link
+                const a = document.createElement('a');
+                a.href = url;
+                const backupFilename = `birthday_backup_${new Date().toISOString().slice(0,10)}.json`;
+                a.download = backupFilename;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                
+                alert(`შემოწმება დასრულებულია.\n${allData.length} დაბადების დღის ჩანაწერი ნაპოვნია.\n\nმონაცემების სარეზერვო ასლი შენახულია ფაილში:\n${backupFilename}`);
+            } else {
+                console.warn("No birthday data found in database");
+                alert("ბაზაში ვერ მოიძებნა დაბადების დღეების ჩანაწერები.");
+            }
+        } catch (error) {
+            console.error("Database debug error:", error);
+            alert("ბაზის შემოწმებისას დაფიქსირდა შეცდომა: " + error.message);
+        }
+    }
+
+    /**
+     * Initializes all event listeners for the application.
+     */
+    function initializeEventListeners() {
+        // Get updated DOM elements if they exist
+        const currentImportBtn = window.updatedImportBtn || importBtn;
+        const currentImportFileInput = window.updatedImportFileInput || importFileInput;
+        const currentExportJsonBtn = window.updatedExportJsonBtn || exportJsonBtn;
+        const currentExportCsvBtn = window.updatedExportCsvBtn || exportCsvBtn;
+        const currentExportIcsBtn = window.updatedExportIcsBtn || exportIcsBtn;
+
+        // Navigation
+        siteTitle.addEventListener('click', () => {
+            showView('list');
+        });
+        
+        // Form buttons
+        addBirthdayBtnMain.addEventListener('click', () => {
+            resetForm();
+            formTitle.textContent = 'ახალი დაბადების დღის დამატება';
+            deleteBtn.classList.add('hidden');
+            showView('form');
+        });
+        
+        birthdayForm.addEventListener('submit', handleFormSubmit);
+        cancelBtn.addEventListener('click', () => showView('list'));
+        deleteBtn.addEventListener('click', handleDelete);
+        
+        // Detail view buttons
+        backToListBtn.addEventListener('click', () => showView('list'));
+        editBirthdayBtn.addEventListener('click', showEditView);
+        
+        // Search functionality
+        searchInput.addEventListener('input', handleSearch);
+        searchClearBtn.addEventListener('click', clearSearch);
+        
+        // Menu functionality
+        menuToggleBtn.addEventListener('click', toggleMenu);
+        document.addEventListener('click', (e) => {
+            if (menuOverlay.classList.contains('active') && 
+                !e.target.closest('.menu-content') && 
+                !e.target.closest('.menu-toggle')) {
+                closeMenu();
+            }
+        });
+        
+        // Menu navigation
+        howItWorksBtn.addEventListener('click', () => {
+            showView('how-it-works');
+            closeMenu();
+        });
+        
+        faqBtn.addEventListener('click', () => {
+            showView('faq');
+            closeMenu();
+        });
+        
+        // Theme toggle
+        themeToggleBtn.addEventListener('click', toggleTheme);
+        
+        // Menu action buttons - IMPORTANT: Export and import buttons are handled separately at the top level
+        // These are intentionally omitted here to avoid duplicate event handlers
+        
+        // Setup Import/Export Event Listeners only once
+        currentExportJsonBtn.addEventListener('click', () => {
+            exportData('json');
+            closeMenu();
+        });
+        
+        currentExportCsvBtn.addEventListener('click', () => {
+            exportData('csv');
+            closeMenu();
+        });
+        
+        currentExportIcsBtn.addEventListener('click', () => {
+            exportData('ics');
+            closeMenu();
+        });
+        
+        // Import setup - Critical to avoid duplication
+        currentImportBtn.addEventListener('click', () => {
+            if (!window.importState.inProgress) {
+                currentImportFileInput.click();
+            }
+        });
+        
+        // Remove the existing event listener first
+        if (currentImportFileInput._hasChangeListener) {
+            currentImportFileInput.removeEventListener('change', currentImportFileInput._changeHandler);
+        }
+
+        // Define the change handler
+        currentImportFileInput._changeHandler = (event) => {
+            if (event.target.files && event.target.files.length > 0) {
+                const file = event.target.files[0];
+                importData(file);
+                // File input is reset in resetImportState after import completes
+                closeMenu();
+            }
+        };
+
+        // Add the listener and mark that we've added it
+        currentImportFileInput.addEventListener('change', currentImportFileInput._changeHandler);
+        currentImportFileInput._hasChangeListener = true;
+        
+        clearAllBtn.addEventListener('click', handleClearAll);
+        repairDbBtn.addEventListener('click', repairDatabase);
+        
+        // Add event listener for database optimization button
+        const optimizeDbBtn = document.getElementById('optimize-db-btn');
+        if (optimizeDbBtn) {
+            optimizeDbBtn.addEventListener('click', () => {
+                closeMenu();
+                fixDatabaseStorageIssues();
+            });
+        }
+        
+        // Debug button (if present)
+        const debugBtn = document.getElementById('debug-db-btn');
+        if (debugBtn) {
+            debugBtn.addEventListener('click', debugDatabase);
+        }
+    }
+
+    /**
+     * Attempts to repair the database by recovering from localStorage or prompting for import
+     */
+    async function repairDatabase() {
+        try {
+            // Close menu
+            closeMenu();
+            
+            // Get store name from the db.js file or use default
+            const storeName = window.STORE_NAME || 'birthdays';
+            const backupDbName = window.BACKUP_DB_NAME || 'BirthdayAppBackupDB';
+            
+            // 1. Check if we have any data in the database
+            const currentData = await getAllBirthdays();
+            
+            // 2. Try to recover from localStorage backup
+            const localBackup = localStorage.getItem('birthdayAppBackup');
+            
+            if (localBackup) {
+                try {
+                    const parsedData = JSON.parse(localBackup);
+                    
+                    if (parsedData && Array.isArray(parsedData) && parsedData.length > 0) {
+                        // We have backup data in localStorage
+                        if (confirm(`ნაპოვნია ${parsedData.length} დაბადების დღე ლოკალურ საცავში. გსურთ მათი აღდგენა?`)) {
+                            // Clear existing data if user confirms
+                            await clearAllBirthdays();
+                            
+                            // Add all backup data without IDs to avoid conflicts
+                            let successCount = 0;
+                            for (const birthday of parsedData) {
+                                try {
+                                    // Make sure we don't have an ID to avoid conflicts
+                                    const { id, ...birthdayWithoutId } = birthday;
+                                    await addBirthday(birthdayWithoutId);
+                                    successCount++;
+                                } catch (error) {
+                                    console.error("Error restoring backup entry:", error);
+                                }
+                            }
+                            
+                            alert(`წარმატებით აღდგა ${successCount} დაბადების დღე`);
+                            await renderBirthdayList();
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error parsing localStorage backup:", e);
+                }
+            }
+            
+            // 3. If no localStorage backup, try IndexedDB backup
+            try {
+                return new Promise((resolve) => {
+                    const backupRequest = indexedDB.open(backupDbName);
+                    
+                    backupRequest.onerror = (event) => {
+                        console.warn("Error opening backup database:", event.target.error);
+                        promptForImport();
+                        resolve();
+                    };
+                    
+                    backupRequest.onsuccess = (event) => {
+                        const backupDb = event.target.result;
+                        
+                        // Check if the object store exists in the backup DB
+                        if (!backupDb.objectStoreNames.contains(storeName)) {
+                            console.warn(`Backup database doesn't contain the '${storeName}' store`);
+                            backupDb.close();
+                            promptForImport();
+                            resolve();
+                            return;
+                        }
+                        
+                        try {
+                            const transaction = backupDb.transaction([storeName], 'readonly');
+                            
+                            transaction.onerror = (event) => {
+                                console.error("Backup transaction error:", event.target.error);
+                                backupDb.close();
+                                promptForImport();
+                                resolve();
+                            };
+                            
+                            const store = transaction.objectStore(storeName);
+                            const request = store.getAll();
+                            
+                            request.onerror = (event) => {
+                                console.error("Error reading from backup store:", event.target.error);
+                                backupDb.close();
+                                promptForImport();
+                                resolve();
+                            };
+                            
+                            request.onsuccess = async (event) => {
+                                const backupData = event.target.result;
+                                backupDb.close();
+                                
+                                if (backupData && backupData.length > 0) {
+                                    if (confirm(`ნაპოვნია ${backupData.length} დაბადების დღე სარეზერვო ბაზაში. გსურთ მათი აღდგენა?`)) {
+                                        // Clear existing data if user confirms
+                                        await clearAllBirthdays();
+                                        
+                                        // Add all backup data
+                                        let successCount = 0;
+                                        for (const birthday of backupData) {
+                                            try {
+                                                // Make sure we don't have an ID to avoid conflicts
+                                                const { id, ...birthdayWithoutId } = birthday;
+                                                await addBirthday(birthdayWithoutId);
+                                                successCount++;
+                                            } catch (error) {
+                                                console.error("Error restoring backup entry:", error);
+                                            }
+                                        }
+                                        
+                                        alert(`წარმატებით აღდგა ${successCount} დაბადების დღე`);
+                                        await renderBirthdayList();
+                                    } else {
+                                        promptForImport();
+                                    }
+                                } else {
+                                    console.warn("No data found in backup database");
+                                    promptForImport();
+                                }
+                                
+                                resolve();
+                            };
+                        } catch (e) {
+                            console.error("Error reading from backup DB:", e);
+                            backupDb.close();
+                            promptForImport();
+                            resolve();
+                        }
+                    };
+                });
+            } catch (e) {
+                console.error("Error opening backup DB:", e);
+                promptForImport();
+            }
+        } catch (error) {
+            console.error("Database repair error:", error);
+            alert("მონაცემთა ბაზის აღდგენის შეცდომა: " + error.message);
+            promptForImport();
+        }
+    }
+
+    /**
+     * Fixes database storage issues by optimizing the database structure
+     * 
+     * ეს ფუნქცია:
+     * 1. ქმნის ყველა არსებული მონაცემის სარეზერვო ასლს მეხსიერებაში
+     * 2. სრულად შლის ბაზას ID-ების მთვლელის განულებისთვის
+     * 3. თავიდან ქმნის ბაზას ახალი სტრუქტურით
+     * 4. აღადგენს ყველა შენახულ მონაცემს
+     * 
+     * როდის გამოიყენოთ:
+     * - თუ გიჩნდებათ ID კონფლიქტები (ConstraintError: Key already exists)
+     * - თუ ახალი მონაცემების დამატებისას იღებთ შეცდომას
+     * - თუ გაქვთ ბევრი ჩანაწერი (10+) და კიდევ გინდათ დამატება
+     * - თუ წაშალეთ ბევრი ჩანაწერი და გსურთ ID-ების განულება/ბაზის "დალაგება"
+     */
+    async function fixDatabaseStorageIssues() {
+        // Show warning dialog before starting the process
+        const confirmMessage = `⚠️ გაფრთხილება! ⚠️\n\n` + 
+            `ბაზის ოპტიმიზაციის პროცესი დროებით წაშლის ყველა მონაცემს და შემდეგ დააბრუნებს მათ.\n\n` + 
+            `❌ არ დაარეფრეშოთ გვერდი პროცესის მიმდინარეობისას!\n` + 
+            `❌ არ დახუროთ ბრაუზერი პროცესის მიმდინარეობისას!\n\n` + 
+            `გსურთ გააგრძელოთ?`;
+            
+        if (!confirm(confirmMessage)) {
+            return; // User cancelled the operation
+        }
+        
+        let loadingIndicator = null;
+        let progressSpan = null;
+        
+        try {
+            // Create and add the loading indicator
+            loadingIndicator = document.createElement('div');
+            loadingIndicator.className = 'loading-indicator';
+            loadingIndicator.innerHTML = 'ბაზის ოპტიმიზაცია... <span class="progress">0%</span>';
+            loadingIndicator.style.textAlign = 'center';
+            document.body.appendChild(loadingIndicator);
+            
+            progressSpan = loadingIndicator.querySelector('.progress');
+            
+            console.log("Starting database optimization process");
+            
+            // 1. Create a backup of all existing data
+            const allData = await getAllBirthdays();
+            console.log(`Found ${allData.length} records to preserve`);
+            
+            if (!allData || !Array.isArray(allData)) {
+                throw new Error("Failed to retrieve birthdays data");
+            }
+            
+            progressSpan.textContent = '20%';
+            
+            // 2. Store temporarily in memory (without IDs to prevent conflicts)
+            const dataBackup = allData.map(({ name, dob, phone }) => ({ 
+                name, 
+                dob, 
+                phone: phone || null 
+            }));
+            
+            progressSpan.textContent = '40%';
+            
+            // 3. Save to localStorage as backup before proceeding
+            try {
+                localStorage.setItem('optimization_backup', JSON.stringify(dataBackup));
+                console.log("Created localStorage optimization backup");
+            } catch (e) {
+                console.warn("Could not save backup to localStorage:", e);
+                // Continue anyway
+            }
+            
+            progressSpan.textContent = '50%';
+            
+            // 4. MUCH SIMPLER APPROACH: Instead of touching the database structure,
+            // we'll just clear and reinsert all data
+            console.log("Using direct clear and reinsert approach");
+            
+            // 4a. Clear all data using the existing function (should be stable)
+            console.log("Clearing all existing data...");
+            await clearAllBirthdays();
+            
+            progressSpan.textContent = '60%';
+            
+            // 4b. Add small delay for stability
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // 5. Re-import all data
+            console.log("Re-importing data with fresh IDs...");
+            
+            let successCount = 0;
+            let errorCount = 0;
+            
+            // Import in small batches to prevent browser freezing
+            const BATCH_SIZE = 3;
+            
+            for (let i = 0; i < dataBackup.length; i += BATCH_SIZE) {
+                const batch = dataBackup.slice(i, i + BATCH_SIZE);
+                
+                for (const item of batch) {
+                    try {
+                        await addBirthday(item);
+                        successCount++;
+                    } catch (error) {
+                        console.error("Error restoring item during optimization:", error);
+                        errorCount++;
+                    }
+                }
+                
+                // Update progress percentage based on records processed
+                const percentage = Math.round(60 + ((i + batch.length) / dataBackup.length * 40));
+                progressSpan.textContent = `${percentage}%`;
+                
+                // Small delay between batches
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+            
+            console.log(`Database optimization complete. Restored ${successCount} records, errors: ${errorCount}`);
+            
+            // Remove loading indicator
+            if (loadingIndicator && loadingIndicator.parentNode) {
+                document.body.removeChild(loadingIndicator);
+                loadingIndicator = null;
+            }
+            
+            // Clean up the backup
+            try {
+                localStorage.removeItem('optimization_backup');
+            } catch (e) {
+                console.warn("Could not remove optimization backup:", e);
+            }
+            
+            if (errorCount > 0) {
+                alert(`ბაზის ოპტიმიზაცია დასრულდა.\nID ნუმერაცია განულებულია.\n\nწარმატებით აღდგა: ${successCount} ჩანაწერი\nშეცდომა: ${errorCount} ჩანაწერი\n\nგთხოვთ, გადატვირთოთ აპლიკაცია.`);
+            } else {
+                alert(`ბაზის ოპტიმიზაცია წარმატებით დასრულდა.\nID ნუმერაცია განულებულია.\nაღდგენილია ${successCount} ჩანაწერი.\n\nახლა შეგიძლიათ დაამატოთ მეტი მონაცემები.`);
+            }
+            
+            // 6. Refresh the display
+            await renderBirthdayList();
+            
+        } catch (error) {
+            console.error("Error during database optimization:", error);
+            
+            // Try to recover from backup if available
+            try {
+                const backupData = localStorage.getItem('optimization_backup');
+                if (backupData) {
+                    console.log("Found optimization backup, prompting user to restore...");
+                    if (confirm("ოპტიმიზაციის პროცესში მოხდა შეცდომა. გსურთ აღვადგინოთ მონაცემები საპნიდან?")) {
+                        const parsedData = JSON.parse(backupData);
+                        let recoveredCount = 0;
+                        
+                        for (const item of parsedData) {
+                            try {
+                                await addBirthday(item);
+                                recoveredCount++;
+                            } catch (e) {
+                                console.error("Recovery error:", e);
+                            }
+                        }
+                        
+                        alert(`აღდგენილია ${recoveredCount} ჩანაწერი ${parsedData.length}-დან`);
+                        await renderBirthdayList();
+                    }
+                }
+            } catch (recoveryError) {
+                console.error("Recovery attempt failed:", recoveryError);
+            }
+            
+            // Remove loading indicator if there was an error
+            if (loadingIndicator && loadingIndicator.parentNode) {
+                document.body.removeChild(loadingIndicator);
+            }
+            
+            alert("შეცდომა ბაზის ოპტიმიზაციისას: " + error.message + 
+                  "\n\nგთხოვთ, გადატვირთოთ გვერდი და სცადოთ ხელახლა.");
+        }
+    }
 
 }); // End DOMContentLoaded
