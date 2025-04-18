@@ -245,17 +245,19 @@ window.utils = {
 
 /**
  * Generates an iCalendar (.ics) file content string for birthdays.
+ * Creates calendar events for each birthday on the appropriate year.
+ * 
  * @param {Array<object>} birthdays - Array of birthday objects { id, name, dob }.
  * @returns {string} The iCalendar file content as a string.
  */
 function generateICS(birthdays) {
     // iCalendar standard requires UTC time, but for all-day events,
     // just specifying the date is usually sufficient and avoids timezone issues.
-    // We'll format dates as YYYYMMDD.
-
     const today = new Date();
-    const year = today.getFullYear();
-    const nextYear = year + 1; // Include next year's occurrences too
+    today.setHours(0, 0, 0, 0); // Normalize to midnight
+    
+    const currentYear = today.getFullYear();
+    const nextYear = currentYear + 1;
 
     let icsString = `BEGIN:VCALENDAR
 VERSION:2.0
@@ -271,9 +273,25 @@ METHOD:PUBLISH
         const month = String(dobDate.getMonth() + 1).padStart(2, '0');
         const day = String(dobDate.getDate()).padStart(2, '0');
         const birthYear = dobDate.getFullYear(); // Get the actual birth year
+        
+        // Check if this year's birthday has already passed
+        const thisYearBirthday = new Date(currentYear, dobDate.getMonth(), dobDate.getDate());
+        const nextYearBirthday = new Date(nextYear, dobDate.getMonth(), dobDate.getDate());
+        
+        // Only add events for future birthdays
+        // If this year's birthday has passed, only add next year's
+        // If this year's birthday is still coming, add only this year's
+        const yearsToAdd = [];
+        
+        if (thisYearBirthday >= today) {
+            // This year's birthday is still coming up
+            yearsToAdd.push(currentYear);
+        } else {
+            // This year's birthday has passed, add next year's
+            yearsToAdd.push(nextYear);
+        }
 
-        // Create events for the current and next year to ensure they appear
-        [year, nextYear].forEach(eventYear => {
+        yearsToAdd.forEach(eventYear => {
             // Handling leap years - if Feb 29 and not a leap year, use Feb 28
             let eventDay = day;
             let eventMonth = month;
@@ -300,12 +318,24 @@ DTSTAMP:${new Date().toISOString().replace(/[-:.]/g, '')}Z
 DTSTART;VALUE=DATE:${dtstartDate}
 SUMMARY:${summary}
 DESCRIPTION:${description}
-RRULE:FREQ=YEARLY
+RRULE:FREQ=YEARLY;INTERVAL=1
+CATEGORIES:BIRTHDAY
 TRANSP:TRANSPARENT
+CLASS:PUBLIC
 BEGIN:VALARM
 ACTION:DISPLAY
-DESCRIPTION:${summary}
+DESCRIPTION:შეხსენება: ${birthday.name}-ს დაბადების დღე 1 კვირაში
+TRIGGER:-P7D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:შეხსენება: ${birthday.name}-ს დაბადების დღე ხვალ
 TRIGGER:-P1D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:დღეს ${birthday.name}-ს დაბადების დღეა! 🎂
+TRIGGER;VALUE=DURATION:PT0S
 END:VALARM
 END:VEVENT
 `;
@@ -320,22 +350,24 @@ END:VEVENT
 /**
  * Converts an array of objects to a CSV string.
  * @param {Array<object>} data - Array of objects (birthdays).
+ * @param {Array<string>} [headers] - Optional custom headers array.
  * @returns {string} CSV formatted string.
  */
-function generateCSV(data) {
+function generateCSV(data, headers) {
     if (!data || data.length === 0) {
         return '';
     }
-    // Use only relevant fields, ensure consistent order
-    const headers = ['id', 'name', 'dob'];
+    
+    // Use provided headers or default to these fields
+    const csvHeaders = headers || ['id', 'name', 'dob', 'phone'];
     const csvRows = [];
 
     // Add header row
-    csvRows.push(headers.join(','));
+    csvRows.push(csvHeaders.join(','));
 
     // Add data rows
     data.forEach(item => {
-        const values = headers.map(header => {
+        const values = csvHeaders.map(header => {
             let value = item[header] === null || item[header] === undefined ? '' : item[header];
             // Escape commas and quotes in values
             if (typeof value === 'string') {
